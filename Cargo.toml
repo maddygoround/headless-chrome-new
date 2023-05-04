@@ -1,6 +1,6 @@
 [package]
 name = "headless_chrome_new"
-version = "1.0.5"
+version = "1.0.6"
 authors = ["Mahendra Rathod <rathodm63@gmail.com>"]
 edition = "2021"
 description = "Control Chrome programatically"
