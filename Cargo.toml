@@ -1,12 +1,12 @@
 [package]
-name = "headless_chrome"
+name = "headless_chrome_new"
 version = "1.0.5"
-authors = ["Alistair Roche <alistair@sunburnt.country>"]
+authors = ["Mahendra Rathod <rathodm63@gmail.com>"]
 edition = "2021"
 description = "Control Chrome programatically"
 license = "MIT"
-homepage = "https://github.com/atroche/rust-headless-chrome"
-repository = "https://github.com/atroche/rust-headless-chrome"
+homepage = "https://github.com/maddygoround/headless-chrome-new"
+repository = "https://github.com/maddygoround/headless-chrome-new"
 readme = "README.md"
 
 [dependencies]
@@ -43,7 +43,7 @@ tiny_http = "0.12"
 auto_generate_cdp = "0.4.1"
 
 [lib]
-name = "headless_chrome"
+name = "headless_chrome_new"
 path = "src/lib.rs"
 
 [features]
