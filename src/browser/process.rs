@@ -1,16 +1,15 @@
 use std::{
     borrow::BorrowMut,
     ffi::OsStr,
-    io::{prelude::*, BufRead, BufReader},
+    io::{ prelude::*, BufRead, BufReader },
     net,
-    process::{Child, Command, Stdio},
+    process::{ Child, Command, Stdio },
     time::Duration,
 };
 
 #[cfg(test)]
 use std::cell::RefCell;
-
-use anyhow::{anyhow, Result};
+use anyhow::{ anyhow, Result };
 use log::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -18,14 +17,15 @@ use regex::Regex;
 use thiserror::Error;
 use url::Url;
 #[cfg(windows)]
-use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
+use winreg::{ enums::HKEY_LOCAL_MACHINE, RegKey };
 
 #[cfg(not(feature = "fetch"))]
 use crate::browser::default_executable;
+use crate::types::{HeadlessOption};
 use crate::util;
 
 #[cfg(feature = "fetch")]
-use super::fetcher::{Fetcher, FetcherOptions};
+use super::fetcher::{ Fetcher, FetcherOptions };
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -66,12 +66,15 @@ struct TemporaryProcess(Child, Option<tempfile::TempDir>);
 impl Drop for TemporaryProcess {
     fn drop(&mut self) {
         info!("Killing Chrome. PID: {}", self.0.id());
-        self.0.kill().and_then(|_| self.0.wait()).ok();
+        self.0
+            .kill()
+            .and_then(|_| self.0.wait())
+            .ok();
         if let Some(dir) = self.1.take() {
             if let Err(e) = dir.close() {
                 warn!("Failed to close temporary directory: {}", e);
             }
-        };
+        }
     }
 }
 
@@ -80,8 +83,8 @@ impl Drop for TemporaryProcess {
 #[derive(Debug, Builder)]
 pub struct LaunchOptions<'a> {
     /// Determines whether to run headless version of the browser. Defaults to true.
-    #[builder(default = "true")]
-    pub headless: bool,
+    #[builder(default = "HeadlessOption::Bool(true)")]
+    pub headless: HeadlessOption,
 
     /// Determines whether to run the browser with a sandbox.
     #[builder(default = "true")]
@@ -154,10 +157,12 @@ pub struct LaunchOptions<'a> {
     pub proxy_server: Option<&'a str>,
 }
 
+
+
 impl<'a> Default for LaunchOptions<'a> {
     fn default() -> Self {
         LaunchOptions {
-            headless: true,
+            headless: HeadlessOption::Bool(true),
             sandbox: true,
             idle_browser_timeout: Duration::from_secs(30),
             window_size: None,
@@ -233,7 +238,7 @@ impl Process {
         let mut attempts = 0;
         loop {
             if attempts > 10 {
-                return Err(ChromeLaunchError::NoAvailablePorts {}.into());
+                return Err((ChromeLaunchError::NoAvailablePorts {}).into());
             }
 
             match Self::ws_url_from_output(process.0.borrow_mut()) {
@@ -252,10 +257,7 @@ impl Process {
                 }
             }
 
-            trace!(
-                "Trying again to find available debugging port. Attempts: {}",
-                attempts
-            );
+            trace!("Trying again to find available debugging port. Attempts: {}", attempts);
             attempts += 1;
         }
 
@@ -290,9 +292,7 @@ impl Process {
         } else {
             // picking random data dir so that each a new browser instance is launched
             // (see man google-chrome)
-            let dir = ::tempfile::Builder::new()
-                .prefix("rust-headless-chrome-profile")
-                .tempdir()?;
+            let dir = ::tempfile::Builder::new().prefix("rust-headless-chrome-profile").tempdir()?;
 
             let buf = dir.path().to_path_buf();
             temp_user_data_dir = Some(dir);
@@ -315,7 +315,7 @@ impl Process {
             "--log-level=0",
             "--no-first-run",
             "--disable-audio-output",
-            data_dir_option.as_str(),
+            data_dir_option.as_str()
         ];
 
         if !launch_options.disable_default_args {
@@ -323,8 +323,7 @@ impl Process {
         }
 
         if !launch_options.args.is_empty() {
-            let extra_args: Vec<&str> = launch_options
-                .args
+            let extra_args: Vec<&str> = launch_options.args
                 .iter()
                 .map(|a| a.to_str().unwrap())
                 .collect();
@@ -335,8 +334,14 @@ impl Process {
             args.extend([window_size_option.as_str()]);
         }
 
-        if launch_options.headless {
-            args.extend(["--headless=new"]);
+        if let HeadlessOption::Bool(headless) = launch_options.headless {
+            if headless {
+                args.push("--headless");
+            }
+        } else if let HeadlessOption::Str(headless_str) = &launch_options.headless {
+            if !headless_str.is_empty() {
+                args.push("--headless=new");
+            }
         }
 
         if launch_options.ignore_certificate_errors {
@@ -357,18 +362,14 @@ impl Process {
             args.extend(["--no-sandbox", "--disable-setuid-sandbox"]);
         }
 
-        let extension_args: Vec<String> = launch_options
-            .extensions
+        let extension_args: Vec<String> = launch_options.extensions
             .iter()
             .map(|e| format!("--load-extension={}", e.to_str().unwrap()))
             .collect();
 
         args.extend(extension_args.iter().map(String::as_str));
 
-        let path = launch_options
-            .path
-            .as_ref()
-            .ok_or_else(|| anyhow!("Chrome path required"))?;
+        let path = launch_options.path.as_ref().ok_or_else(|| anyhow!("Chrome path required"))?;
 
         info!("Launching Chrome binary at {:?}", &path);
         trace!("with CLI arguments: {:?}", args);
@@ -381,15 +382,12 @@ impl Process {
 
         let process = TemporaryProcess(
             command.args(&args).stderr(Stdio::piped()).spawn()?,
-            temp_user_data_dir,
+            temp_user_data_dir
         );
         Ok(process)
     }
 
-    fn ws_url_from_reader<R>(reader: BufReader<R>) -> Result<Option<String>>
-    where
-        R: Read,
-    {
+    fn ws_url_from_reader<R>(reader: BufReader<R>) -> Result<Option<String>> where R: Read {
         let port_taken_re = Regex::new(r"ERROR.*bind\(\)")?;
 
         let re = Regex::new(r"listening on (.*/devtools/browser/.*)$")?;
@@ -405,7 +403,7 @@ impl Process {
             trace!("Chrome output: {}", chrome_output);
 
             if port_taken_re.is_match(&chrome_output) {
-                return Err(ChromeLaunchError::DebugPortInUse {}.into());
+                return Err((ChromeLaunchError::DebugPortInUse {}).into());
             }
 
             if let Some(answer) = extract(&chrome_output) {
@@ -428,7 +426,7 @@ impl Process {
         if let Ok(output_result) = chrome_output_result {
             Ok(Url::parse(&output_result?)?)
         } else {
-            Err(ChromeLaunchError::PortOpenTimeout {}.into())
+            Err((ChromeLaunchError::PortOpenTimeout {}).into())
         }
     }
 
@@ -440,7 +438,10 @@ impl Process {
 fn get_available_port() -> Option<u16> {
     let mut ports: Vec<u16> = (8000..9000).collect();
     ports.shuffle(&mut thread_rng());
-    ports.iter().find(|port| port_is_available(**port)).copied()
+    ports
+        .iter()
+        .find(|port| port_is_available(**port))
+        .copied()
 }
 
 fn port_is_available(port: u16) -> bool {
@@ -472,13 +473,14 @@ mod tests {
     #[test]
     fn can_launch_chrome_and_get_ws_url() {
         setup();
-        let chrome = super::Process::new(
-            LaunchOptions::default_builder()
-                .path(Some(default_executable().unwrap()))
-                .build()
-                .unwrap(),
-        )
-        .unwrap();
+        let chrome = super::Process
+            ::new(
+                LaunchOptions::default_builder()
+                    .path(Some(default_executable().unwrap()))
+                    .build()
+                    .unwrap()
+            )
+            .unwrap();
         info!("{:?}", chrome.debug_ws_url);
     }
 
@@ -510,20 +512,24 @@ mod tests {
             fs::remove_dir_all(&installed_dir).expect("Could not delete pre-existing install");
         }
 
-        let chrome = super::Process::new(
-            LaunchOptions::default_builder()
-                .fetcher_options(FetcherOptions::default().with_install_dir(Some(&tests_temp_dir)))
-                .build()
-                .unwrap(),
-        )
-        .unwrap();
+        let chrome = super::Process
+            ::new(
+                LaunchOptions::default_builder()
+                    .fetcher_options(
+                        FetcherOptions::default().with_install_dir(Some(&tests_temp_dir))
+                    )
+                    .build()
+                    .unwrap()
+            )
+            .unwrap();
         info!("{:?}", chrome.debug_ws_url);
     }
 
     #[test]
     fn handle_errors_in_chrome_output() {
         setup();
-        let lines = "[0228/194641.093619:ERROR:socket_posix.cc(144)] bind() returned an error, errno=0: Cannot assign requested address (99)";
+        let lines =
+            "[0228/194641.093619:ERROR:socket_posix.cc(144)] bind() returned an error, errno=0: Cannot assign requested address (99)";
         let reader = BufReader::new(lines.as_bytes());
         let ws_url_result = Process::ws_url_from_reader(reader);
         assert!(ws_url_result.is_err());
@@ -533,7 +539,8 @@ mod tests {
     fn handle_errors_in_chrome_output_gvisor_netlink() {
         // see https://github.com/atroche/rust-headless-chrome/issues/261
         setup();
-        let lines = "[0703/145506.975691:ERROR:address_tracker_linux.cc(214)] Could not bind NETLINK socket: Permission denied (13)";
+        let lines =
+            "[0703/145506.975691:ERROR:address_tracker_linux.cc(214)] Could not bind NETLINK socket: Permission denied (13)";
 
         let reader = BufReader::new(lines.as_bytes());
         let ws_url_result = Process::ws_url_from_reader(reader);
@@ -545,12 +552,11 @@ mod tests {
         use std::fs::File;
         use std::io::prelude::*;
         let current_pid = std::process::id();
-        let mut current_process_children_file =
-            File::open(format!("/proc/{current_pid}/task/{current_pid}/children")).unwrap();
+        let mut current_process_children_file = File::open(
+            format!("/proc/{current_pid}/task/{current_pid}/children")
+        ).unwrap();
         let mut child_pids = String::new();
-        current_process_children_file
-            .read_to_string(&mut child_pids)
-            .unwrap();
+        current_process_children_file.read_to_string(&mut child_pids).unwrap();
         child_pids
             .split_whitespace()
             .map(|pid_str| pid_str.parse::<i32>().unwrap())
@@ -562,13 +568,14 @@ mod tests {
     fn kills_process_on_drop() {
         setup();
         {
-            let _chrome = &mut super::Process::new(
-                LaunchOptions::default_builder()
-                    .path(Some(default_executable().unwrap()))
-                    .build()
-                    .unwrap(),
-            )
-            .unwrap();
+            let _chrome = &mut super::Process
+                ::new(
+                    LaunchOptions::default_builder()
+                        .path(Some(default_executable().unwrap()))
+                        .build()
+                        .unwrap()
+                )
+                .unwrap();
         }
 
         let child_pids = current_child_pids();
@@ -584,13 +591,14 @@ mod tests {
             let handle = thread::spawn(|| {
                 // these sleeps are to make it more likely the chrome startups will overlap
                 std::thread::sleep(std::time::Duration::from_millis(10));
-                let chrome = super::Process::new(
-                    LaunchOptions::default_builder()
-                        .path(Some(default_executable().unwrap()))
-                        .build()
-                        .unwrap(),
-                )
-                .unwrap();
+                let chrome = super::Process
+                    ::new(
+                        LaunchOptions::default_builder()
+                            .path(Some(default_executable().unwrap()))
+                            .build()
+                            .unwrap()
+                    )
+                    .unwrap();
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 chrome.debug_ws_url
             });
@@ -609,14 +617,15 @@ mod tests {
         let mut handles = Vec::new();
 
         for _ in 0..10 {
-            let chrome = super::Process::new(
-                LaunchOptions::default_builder()
-                    .path(Some(default_executable().unwrap()))
-                    .headless(true)
-                    .build()
-                    .unwrap(),
-            )
-            .unwrap();
+            let chrome = super::Process
+                ::new(
+                    LaunchOptions::default_builder()
+                        .path(Some(default_executable().unwrap()))
+                        .headless(true)
+                        .build()
+                        .unwrap()
+                )
+                .unwrap();
             handles.push(chrome);
         }
     }

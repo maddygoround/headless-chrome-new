@@ -365,3 +365,27 @@ mod tests {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum HeadlessOption {
+    Bool(bool),
+    Str(String),
+}
+
+impl From<bool> for HeadlessOption {
+    fn from(value: bool) -> Self {
+        HeadlessOption::Bool(value)
+    }
+}
+
+impl From<String> for HeadlessOption {
+    fn from(value: String) -> Self {
+        HeadlessOption::Str(value)
+    }
+}
+
+impl From<&str> for HeadlessOption {
+    fn from(value: &str) -> Self {
+        HeadlessOption::Str(value.to_string())
+    }
+}
